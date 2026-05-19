@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Whatnot Cost Tracker</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getDatabase, ref, set, get } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+  const firebaseConfig = {
+    apiKey:            "AIzaSyACDzC304jHmoPww5FcjK-37Vxn6n1Q69w",
+    authDomain:        "whatnot-cost-tracker.firebaseapp.com",
+    databaseURL:       "https://whatnot-cost-tracker-default-rtdb.firebaseio.com",
+    projectId:         "whatnot-cost-tracker",
+    storageBucket:     "whatnot-cost-tracker.firebasestorage.app",
+    messagingSenderId: "642864520880",
+    appId:             "1:642864520880:web:2e2e5cbc265dd19d9d6575"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db  = getDatabase(app);
+  window._db  = db;
+  window._ref = ref;
+  window._set = set;
+  window._get = get;
+  window._firebaseReady = true;
+  document.dispatchEvent(new Event("firebase-ready"));
+</script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f5f5f5;
+    --surface: #ffffff;
+    --border: #d0d0d0;
+    --border-strong: #999;
+    --text: #111111;
+    --text-mid: #444444;
+    --text-muted: #666666;
+    --orange: #e07000;
+    --blue: #1a5fb4;
+    --green: #2a7a2a;
+    --red: #cc2222;
+    --radius: 8px;
+    --shadow: 0 1px 4px rgba(0,0,0,0.12);
+  }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 12px; font-size: 15px; }
+
+  /* HEADER */
+  .header { background: var(--surface); border: 2px solid var(--border); border-radius: var(--radius); padding: 12px 16px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; box-shadow: var(--shadow); }
+  .header h1 { font-size: 19px; font-weight: 800; }
+  .header-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .sync-status { font-size: 12px; font-weight: 700; color: var(--text-muted); }
+  .sync-status.ok  { color: var(--green); }
+  .sync-status.err { color: var(--red); }
+  .export-btn { background: #217346; color: #fff; border: none; border-radius: 6px; padding: 8px 14px; font-size: 13px; font-weight: 700; cursor: pointer; }
+  .export-btn:hover { background: #185c38; }
+  .export-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  /* TABS */
+  .tabs { display: flex; background: var(--surface); border: 2px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-bottom: 12px; box-shadow: var(--shadow); }
+  .tab-btn { flex: 1; padding: 11px; border: none; background: none; font-size: 14px; font-weight: 700; color: var(--text-muted); cursor: pointer; border-bottom: 3px solid transparent; }
+  .tab-btn.active { color: var(--text); border-bottom-color: var(--text); background: #f0f0f0; }
+
+  /* CARD */
+  .card { background: var(--surface); border: 2px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 12px; overflow: hidden; }
+  .card-header { padding: 11px 16px; background: #f0f0f0; border-bottom: 2px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .card-header h2 { font-size: 15px; font-weight: 800; }
+
+  /* CALENDAR */
+  .cal-nav { display: flex; align-items: center; justify-content: space-between; padding: 11px 14px; border-bottom: 2px solid var(--border); }
+  .cal-nav button { background: none; border: 2px solid var(--border-strong); border-radius: 6px; width: 36px; height: 36px; font-size: 20px; font-weight: 800; cursor: pointer; color: var(--text); display: flex; align-items: center; justify-content: center; line-height: 1; }
+  .cal-nav button:hover { background: #eee; }
+  .cal-nav .month-label { font-size: 17px; font-weight: 800; }
+  .cal-grid { padding: 8px; display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+  .cal-day-header { text-align: center; font-size: 12px; font-weight: 800; color: var(--text-mid); padding: 4px 0 6px; text-transform: uppercase; }
+  .cal-cell { border: 2px solid var(--border); border-radius: 6px; padding: 6px 3px; min-height: 52px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 3px; transition: background 0.1s; }
+  .cal-cell:hover    { background: #f0f4ff; border-color: var(--blue); }
+  .cal-cell.today    { border-color: var(--blue); }
+  .cal-cell.selected { background: #e8f0fe; border-color: var(--blue); border-width: 3px; }
+  .cal-cell.has-data { background: #f0faf0; }
+  .cal-cell.has-note { position: relative; }
+  .cal-cell.has-note::after { content: ""; position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; border-radius: 50%; background: #e07000; }
+  .cal-cell .day-num   { font-size: 14px; font-weight: 700; }
+  .cal-cell.today .day-num { color: var(--blue); }
+  .cal-cell .day-total { font-size: 11px; font-weight: 800; color: var(--green); line-height: 1; }
+  .cal-cell .day-dot   { width: 5px; height: 5px; border-radius: 50%; background: var(--green); }
+  .cal-cell.empty      { border-color: transparent; cursor: default; background: none; }
+  .cal-cell.empty:hover { background: none; border-color: transparent; }
+
+  /* DETAIL PANEL */
+  #detail-panel { display: none; }
+  #detail-panel.open { display: block; }
+  .detail-header { display: flex; align-items: center; justify-content: space-between; padding: 11px 16px; background: #f0f0f0; border-bottom: 2px solid var(--border); flex-wrap: wrap; gap: 8px; }
+  .detail-header h2 { font-size: 15px; font-weight: 800; }
+  .detail-header-right { display: flex; align-items: center; gap: 8px; }
+  .close-btn { background: none; border: 2px solid var(--border-strong); border-radius: 6px; width: 32px; height: 32px; font-size: 18px; font-weight: 800; cursor: pointer; color: var(--text); display: flex; align-items: center; justify-content: center; }
+
+  /* SUMMARY CARDS */
+  .summary-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 12px 14px; border-bottom: 2px solid var(--border); background: #fafafa; }
+  .summary-card { background: var(--surface); border: 2px solid var(--border); border-radius: var(--radius); padding: 10px 12px; }
+  .sc-label { font-size: 11px; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+  .sc-value { font-size: 20px; font-weight: 800; }
+  .sc-value.orange { color: var(--orange); }
+  .sc-value.blue   { color: var(--blue); }
+  .sc-value.green  { color: var(--green); }
+
+  /* SECTIONS */
+  .section { padding: 12px 14px; border-bottom: 2px solid var(--border); }
+  .section:last-child { border-bottom: none; }
+  .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; flex-wrap: wrap; gap: 8px; }
+  .section-title { font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-mid); }
+  .add-btn { background: var(--text); color: #fff; border: none; border-radius: 6px; padding: 6px 14px; font-size: 13px; font-weight: 700; cursor: pointer; }
+  .add-btn:hover { background: #333; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; min-width: 360px; }
+  thead tr { background: #f0f0f0; }
+  th { padding: 8px; text-align: left; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text); border-bottom: 2px solid var(--border); }
+  th.right { text-align: right; }
+  td { padding: 6px 6px; border-bottom: 1px solid #eee; vertical-align: middle; }
+  td.subtotal { font-size: 14px; font-weight: 800; text-align: right; white-space: nowrap; }
+  td.subtotal.orange { color: var(--orange); }
+  td.subtotal.blue   { color: var(--blue); }
+  tr:last-child td { border-bottom: none; }
+  .empty-row td { text-align: center; padding: 20px; font-size: 14px; font-weight: 600; color: var(--text-muted); }
+
+  input[type="text"], input[type="number"], select, textarea {
+    width: 100%; font-size: 14px; font-weight: 600; padding: 7px 8px;
+    border: 2px solid var(--border); border-radius: 6px;
+    background: #fff; color: var(--text); font-family: inherit; outline: none;
+  }
+  input:focus, select:focus, textarea:focus { border-color: var(--blue); }
+  textarea { min-height: 90px; resize: vertical; font-size: 14px; line-height: 1.5; }
+
+  .del-btn { background: none; border: 2px solid var(--border-strong); border-radius: 6px; width: 30px; height: 30px; font-size: 16px; font-weight: 800; cursor: pointer; color: var(--red); display: flex; align-items: center; justify-content: center; }
+  .del-btn:hover { background: #fff0f0; }
+
+  /* NOTES */
+  .save-note-btn { background: #1a5fb4; color: #fff; border: none; border-radius: 6px; padding: 7px 16px; font-size: 13px; font-weight: 700; cursor: pointer; }
+  .save-note-btn:hover { background: #154ea0; }
+  .save-note-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+  .saved-badge { display: none; font-size: 12px; font-weight: 700; color: var(--green); background: #e8f5e9; border: 1px solid #a5d6a7; border-radius: 20px; padding: 3px 12px; }
+  .saved-badge.show { display: inline-block; }
+
+  /* MONTHLY */
+  .monthly-table-wrap { overflow-x: auto; }
+  .monthly-table-wrap table { min-width: 280px; }
+  .monthly-total-row td { font-weight: 800; font-size: 16px; background: #f0f0f0; }
+  .view-btn { background: none; border: 2px solid var(--border-strong); border-radius: 6px; padding: 4px 12px; font-size: 13px; font-weight: 700; cursor: pointer; }
+  .view-btn:hover { background: #eee; }
+  .empty-state { padding: 32px 16px; text-align: center; font-size: 15px; font-weight: 600; color: var(--text-muted); }
+
+  #loading { display: none; position: fixed; inset: 0; background: rgba(255,255,255,0.75); z-index: 999; align-items: center; justify-content: center; font-size: 18px; font-weight: 800; }
+  #loading.show { display: flex; }
+</style>
+</head>
+<body>
+
+<div id="loading">Loading&#8230;</div>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Whatnot Cost Tracker</h1>
+  <div class="header-right">
+    <button class="export-btn" onclick="exportExcel()">&#8595; Export Excel</button>
+    <span class="sync-status" id="sync-status">Connecting&#8230;</span>
+  </div>
+</div>
+
+<!-- TABS -->
+<div class="tabs">
+  <button class="tab-btn active" onclick="switchTab('calendar')">&#128197; Calendar</button>
+  <button class="tab-btn"        onclick="switchTab('monthly')">&#128202; Monthly Summary</button>
+</div>
+
+<!-- CALENDAR TAB -->
+<div id="tab-calendar">
+  <div class="card">
+    <div class="cal-nav">
+      <button onclick="changeMonth(-1)">&#8249;</button>
+      <span class="month-label" id="month-label"></span>
+      <button onclick="changeMonth(1)">&#8250;</button>
+    </div>
+    <div class="cal-grid" id="cal-grid"></div>
+  </div>
+
+  <!-- DETAIL PANEL -->
+  <div class="card" id="detail-panel">
+    <div class="detail-header">
+      <h2 id="detail-date-label">&#8212;</h2>
+      <div class="detail-header-right">
+        <button class="close-btn" onclick="closeDetail()">&#215;</button>
+      </div>
+    </div>
+
+    <!-- Summary -->
+    <div class="summary-cards">
+      <div class="summary-card"><div class="sc-label">Materials</div><div class="sc-value orange" id="sc-materials">$0.00</div></div>
+      <div class="summary-card"><div class="sc-label">Labor</div><div class="sc-value blue" id="sc-labor">$0.00</div></div>
+      <div class="summary-card"><div class="sc-label">Total</div><div class="sc-value green" id="sc-total">$0.00</div></div>
+    </div>
+
+    <!-- Materials -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">Materials</span>
+        <button class="add-btn" onclick="addMaterial()">+ Add</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th style="width:40%">Item</th>
+            <th class="right" style="width:22%">Unit Price</th>
+            <th class="right" style="width:13%">Qty</th>
+            <th class="right" style="width:18%">Subtotal</th>
+            <th style="width:7%"></th>
+          </tr></thead>
+          <tbody id="mat-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Labor -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">Labor</span>
+        <button class="add-btn" onclick="addLabor()">+ Add</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th style="width:35%">Name</th>
+            <th class="right" style="width:20%">Hours</th>
+            <th class="right" style="width:25%">Rate / hr</th>
+            <th class="right" style="width:15%">Subtotal</th>
+            <th style="width:5%"></th>
+          </tr></thead>
+          <tbody id="labor-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Notes -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">&#128221; Notes</span>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span class="saved-badge" id="notes-saved-badge">Saved &#10003;</span>
+          <button class="save-note-btn" id="save-note-btn" onclick="saveNotes()">&#128190; Save Note</button>
+        </div>
+      </div>
+      <textarea id="notes-input" placeholder="Type your notes here, then tap Save Note to store it&#8230;"></textarea>
+    </div>
+  </div>
+</div>
+
+<!-- MONTHLY TAB -->
+<div id="tab-monthly" style="display:none;">
+  <div class="card">
+    <div class="card-header"><h2>Monthly Summary</h2></div>
+    <div id="monthly-content"><div class="empty-state">Loading&#8230;</div></div>
+  </div>
+</div>
+
+<script>
+  const PRESETS = [
+    { label:"-- Select item --", size:"", price:"" },
+    { label:"Polybag Small",  size:"Polybag Small",  price:"0.50" },
+    { label:"Polybag Med",    size:"Polybag Med",    price:"0.75" },
+    { label:"Polybag Large",  size:"Polybag Large",  price:"1.00" },
+    { label:"Small Box",      size:"Small Box",      price:"1.25" },
+    { label:"Med Box",        size:"Med Box",        price:"2.00" },
+    { label:"Large Box",      size:"Large Box",      price:"3.00" },
+    { label:"XL Box",         size:"XL Box",         price:"4.50" },
+  ];
+
+  const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  const DAYS   = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+
+  const fmt   = n => "$" + parseFloat(n||0).toFixed(2);
+  const uid   = () => Math.random().toString(36).slice(2,9);
+  const toKey = (y,m,d) => y+"-"+String(m+1).padStart(2,"0")+"-"+String(d).padStart(2,"0");
+  const today = (()=>{ const n=new Date(); return toKey(n.getFullYear(),n.getMonth(),n.getDate()); })();
+
+  let curYear  = new Date().getFullYear();
+  let curMonth = new Date().getMonth();
+  let selDate  = null;
+  let dayData  = { materials:[], labor:[], notes:"" };
+  let monthCache = {};
+  let saveTimer  = null;
+
+  // ── FIREBASE ─────────────────────────────────────────────────
+  function dbKey(k) { return "expenses/"+k.replace(/-/g,"_"); }
+
+  async function fbGet(key) {
+    const snap = await window._get(window._ref(window._db, dbKey(key)));
+    return snap.exists() ? snap.val() : null;
+  }
+  async function fbSet(key, val) {
+    await window._set(window._ref(window._db, dbKey(key)), val);
+  }
+  async function fbGetMonth(y, m) {
+    const snap = await window._get(window._ref(window._db, "expenses"));
+    if (!snap.exists()) return {};
+    const prefix = y+"_"+String(m+1).padStart(2,"0");
+    const map = {};
+    Object.entries(snap.val()).forEach(([k,v])=>{
+      if (k.startsWith(prefix)) {
+        const dk = k.replace(/_/g,"-");
+        const mt = (v.materials||[]).reduce((s,r)=>s+(+r.price||0)*(+r.qty||0),0);
+        const lt = (v.labor||[]).reduce((s,r)=>s+(+r.hours||0)*(+r.rate||0),0);
+        map[dk] = { total: mt+lt, hasNote: !!(v.notes && v.notes.trim()) };
+      }
+    });
+    return map;
+  }
+  async function fbGetAll() {
+    const snap = await window._get(window._ref(window._db, "expenses"));
+    if (!snap.exists()) return {};
+    const monthly = {};
+    Object.entries(snap.val()).forEach(([k,v])=>{
+      const ym = k.slice(0,7).replace("_","-");
+      const mt = (v.materials||[]).reduce((s,r)=>s+(+r.price||0)*(+r.qty||0),0);
+      const lt = (v.labor||[]).reduce((s,r)=>s+(+r.hours||0)*(+r.rate||0),0);
+      monthly[ym] = (monthly[ym]||0) + mt + lt;
+    });
+    return monthly;
+  }
+
+  function setStatus(msg, cls) {
+    const el = document.getElementById("sync-status");
+    el.textContent = msg; el.className = "sync-status "+cls;
+  }
+  function showLoading(b) { document.getElementById("loading").classList.toggle("show",b); }
+
+  // ── TABS ─────────────────────────────────────────────────────
+  function switchTab(t) {
+    document.getElementById("tab-calendar").style.display = t==="calendar" ? "block" : "none";
+    document.getElementById("tab-monthly").style.display  = t==="monthly"  ? "block" : "none";
+    document.querySelectorAll(".tab-btn").forEach((b,i)=>{
+      b.classList.toggle("active",(i===0&&t==="calendar")||(i===1&&t==="monthly"));
+    });
+    if (t==="monthly") renderMonthly();
+  }
+
+  // ── CALENDAR ─────────────────────────────────────────────────
+  function renderCalendar() {
+    document.getElementById("month-label").textContent = MONTHS[curMonth]+" "+curYear;
+    const grid = document.getElementById("cal-grid");
+    grid.innerHTML = "";
+    DAYS.forEach(d=>{ const el=document.createElement("div"); el.className="cal-day-header"; el.textContent=d; grid.appendChild(el); });
+    const firstDay  = new Date(curYear,curMonth,1).getDay();
+    const daysInMon = new Date(curYear,curMonth+1,0).getDate();
+    for (let i=0;i<firstDay;i++) { const el=document.createElement("div"); el.className="cal-cell empty"; grid.appendChild(el); }
+    for (let d=1;d<=daysInMon;d++) {
+      const key  = toKey(curYear,curMonth,d);
+      const info = monthCache[key];
+      const el   = document.createElement("div");
+      let cls = "cal-cell";
+      if (key===today)   cls += " today";
+      if (key===selDate) cls += " selected";
+      if (info && info.total>0)   cls += " has-data";
+      if (info && info.hasNote)   cls += " has-note";
+      el.className = cls;
+      el.innerHTML = '<span class="day-num">'+d+'</span>' +
+        (info && info.total>0 ? '<span class="day-total">$'+info.total.toFixed(0)+'</span><div class="day-dot"></div>' : "");
+      el.onclick = ()=>selectDate(key);
+      grid.appendChild(el);
+    }
+  }
+
+  async function changeMonth(dir) {
+    curMonth += dir;
+    if (curMonth>11){curMonth=0;curYear++;}
+    if (curMonth<0) {curMonth=11;curYear--;}
+    showLoading(true);
+    try {
+      monthCache = await Promise.race([fbGetMonth(curYear,curMonth), new Promise((_,r)=>setTimeout(()=>r(new Error("timeout")),8000))]);
+    } catch(e) { monthCache={}; }
+    showLoading(false);
+    renderCalendar();
+  }
+
+  // ── DETAIL ───────────────────────────────────────────────────
+  async function selectDate(key) {
+    selDate = key;
+    document.getElementById("detail-date-label").textContent =
+      new Date(key+"T12:00:00").toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"});
+    dayData = { materials:[], labor:[], notes:"" };
+    showLoading(true);
+    try {
+      const raw = await Promise.race([fbGet(key), new Promise((_,r)=>setTimeout(()=>r(new Error("timeout")),8000))]);
+      if (raw) {
+        dayData.materials = Array.isArray(raw.materials) ? raw.materials : [];
+        dayData.labor     = Array.isArray(raw.labor)     ? raw.labor     : [];
+        dayData.notes     = raw.notes || "";
+      }
+    } catch(e) { console.error(e); setStatus("Connection issue",  "err"); }
+    showLoading(false);
+    renderMaterials(); renderLabor(); updateSummary();
+    document.getElementById("notes-input").value = dayData.notes;
+    document.getElementById("detail-panel").classList.add("open");
+    document.getElementById("detail-panel").scrollIntoView({behavior:"smooth",block:"start"});
+    renderCalendar();
+  }
+
+  function closeDetail() {
+    selDate = null;
+    document.getElementById("detail-panel").classList.remove("open");
+    renderCalendar();
+  }
+
+  function updateSummary() {
+    const mt = dayData.materials.reduce((s,r)=>s+(+r.price||0)*(+r.qty||0),0);
+    const lt = dayData.labor.reduce((s,r)=>s+(+r.hours||0)*(+r.rate||0),0);
+    document.getElementById("sc-materials").textContent = fmt(mt);
+    document.getElementById("sc-labor").textContent     = fmt(lt);
+    document.getElementById("sc-total").textContent     = fmt(mt+lt);
+    if (selDate) monthCache[selDate] = { total: mt+lt, hasNote: !!(dayData.notes && dayData.notes.trim()) };
+  }
+
+  function scheduleSave() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(async ()=>{
+      if (!selDate) return;
+      try { await fbSet(selDate, dayData); renderCalendar(); } catch(e) { console.error(e); }
+    }, 700);
+  }
+
+  // ── NOTES ────────────────────────────────────────────────────
+  async function saveNotes() {
+    if (!selDate) return;
+    dayData.notes = document.getElementById("notes-input").value.trim();
+    const btn   = document.getElementById("save-note-btn");
+    const badge = document.getElementById("notes-saved-badge");
+    btn.textContent = "Saving...";
+    btn.disabled = true;
+    try {
+      await fbSet(selDate, dayData);
+      updateSummary();
+      renderCalendar();
+      badge.classList.add("show");
+      setTimeout(()=>badge.classList.remove("show"), 2500);
+    } catch(e) {
+      alert("Failed to save note. Please check your connection.");
+      console.error(e);
+    }
+    btn.textContent = "Save Note";
+    btn.disabled = false;
+  }
+
+  // ── MATERIALS ────────────────────────────────────────────────
+  function renderMaterials() {
+    const tbody = document.getElementById("mat-tbody");
+    if (!dayData.materials.length) {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No materials — click + Add to start</td></tr>';
+      return;
+    }
+    const opts = PRESETS.map((p,i)=>'<option value="'+i+'">'+p.label+'</option>').join("");
+    tbody.innerHTML = dayData.materials.map(r=>{
+      const sub = (+r.price||0)*(+r.qty||0);
+      return '<tr>'+
+        '<td><select onchange="applyPreset(\''+r.id+'\',this.value)" style="margin-bottom:4px">'+opts+'</select>'+
+        '<input type="text" value="'+esc(r.size)+'" placeholder="or type custom..." oninput="updateMat(\''+r.id+'\',\'size\',this.value)"></td>'+
+        '<td><input type="number" min="0" step="0.01" value="'+r.price+'" placeholder="0.00" oninput="updateMat(\''+r.id+'\',\'price\',this.value)"></td>'+
+        '<td><input type="number" min="0" step="1" value="'+r.qty+'" placeholder="0" oninput="updateMat(\''+r.id+'\',\'qty\',this.value)"></td>'+
+        '<td class="subtotal orange" id="ms-'+r.id+'">'+fmt(sub)+'</td>'+
+        '<td><button class="del-btn" onclick="delMat(\''+r.id+'\')">&#215;</button></td>'+
+        '</tr>';
+    }).join("");
+  }
+
+  function applyPreset(id, idx) {
+    const p = PRESETS[+idx];
+    if (!p||!p.size) return;
+    dayData.materials = dayData.materials.map(r=>r.id===id?{...r,size:p.size,price:p.price}:r);
+    renderMaterials(); updateSummary(); scheduleSave();
+  }
+  function updateMat(id,field,val) {
+    dayData.materials = dayData.materials.map(r=>r.id===id?{...r,[field]:val}:r);
+    const r = dayData.materials.find(x=>x.id===id);
+    const el = document.getElementById("ms-"+id);
+    if (el&&r) el.textContent = fmt((+r.price||0)*(+r.qty||0));
+    updateSummary(); scheduleSave();
+  }
+  function addMaterial() {
+    dayData.materials.push({id:uid(),size:"",price:"",qty:""});
+    renderMaterials(); updateSummary(); scheduleSave();
+  }
+  function delMat(id) {
+    dayData.materials = dayData.materials.filter(r=>r.id!==id);
+    renderMaterials(); updateSummary(); scheduleSave();
+  }
+
+  // ── LABOR ────────────────────────────────────────────────────
+  function renderLabor() {
+    const tbody = document.getElementById("labor-tbody");
+    if (!dayData.labor.length) {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No labor entries — click + Add to start</td></tr>';
+      return;
+    }
+    tbody.innerHTML = dayData.labor.map(r=>{
+      const sub = (+r.hours||0)*(+r.rate||0);
+      return '<tr>'+
+        '<td><input type="text" value="'+esc(r.name)+'" placeholder="Name" oninput="updateLab(\''+r.id+'\',\'name\',this.value)"></td>'+
+        '<td><input type="number" min="0" step="0.5" value="'+r.hours+'" placeholder="0" oninput="updateLab(\''+r.id+'\',\'hours\',this.value)"></td>'+
+        '<td><input type="number" min="0" step="0.01" value="'+r.rate+'" placeholder="0.00" oninput="updateLab(\''+r.id+'\',\'rate\',this.value)"></td>'+
+        '<td class="subtotal blue" id="ls-'+r.id+'">'+fmt(sub)+'</td>'+
+        '<td><button class="del-btn" onclick="delLab(\''+r.id+'\')">&#215;</button></td>'+
+        '</tr>';
+    }).join("");
+  }
+  function updateLab(id,field,val) {
+    dayData.labor = dayData.labor.map(r=>r.id===id?{...r,[field]:val}:r);
+    const r  = dayData.labor.find(x=>x.id===id);
+    const el = document.getElementById("ls-"+id);
+    if (el&&r) el.textContent = fmt((+r.hours||0)*(+r.rate||0));
+    updateSummary(); scheduleSave();
+  }
+  function addLabor() {
+    dayData.labor.push({id:uid(),name:"",hours:"",rate:""});
+    renderLabor(); updateSummary(); scheduleSave();
+  }
+  function delLab(id) {
+    dayData.labor = dayData.labor.filter(r=>r.id!==id);
+    renderLabor(); updateSummary(); scheduleSave();
+  }
+
+  // ── MONTHLY ──────────────────────────────────────────────────
+  async function renderMonthly() {
+    const el = document.getElementById("monthly-content");
+    el.innerHTML = '<div class="empty-state">Loading&#8230;</div>';
+    let data = {};
+    try {
+      data = await Promise.race([fbGetAll(), new Promise((_,r)=>setTimeout(()=>r(new Error("timeout")),8000))]);
+    } catch(e) {
+      el.innerHTML = '<div class="empty-state">Could not load data. Check Firebase connection.</div>';
+      return;
+    }
+    if (!Object.keys(data).length) {
+      el.innerHTML = '<div class="empty-state">No data yet. Click a date on the Calendar to start adding entries.</div>';
+      return;
+    }
+    const sorted = Object.entries(data).sort((a,b)=>b[0].localeCompare(a[0]));
+    const grand  = sorted.reduce((s,[,v])=>s+v,0);
+    el.innerHTML = '<div class="monthly-table-wrap"><table>'+
+      '<thead><tr><th>Month</th><th class="right">Total</th><th></th></tr></thead><tbody>'+
+      sorted.map(([ym,total],i)=>{
+        const [y,m] = ym.split("-").map(Number);
+        return '<tr style="'+(i>0?"border-top:1px solid #eee":"")+'">' +
+          '<td style="font-size:15px;font-weight:700;padding:12px 14px">'+MONTHS[m-1]+" "+y+'</td>'+
+          '<td class="subtotal green" style="padding:12px 14px">'+fmt(total)+'</td>'+
+          '<td style="padding:12px 14px;text-align:right"><button class="view-btn" onclick="goToMonth('+y+','+(m-1)+')">View &nearr;</button></td>'+
+          '</tr>';
+      }).join("")+
+      '</tbody><tfoot><tr class="monthly-total-row">'+
+      '<td style="padding:12px 14px">All-time total</td>'+
+      '<td style="text-align:right;padding:12px 14px;color:var(--green)">'+fmt(grand)+'</td>'+
+      '<td></td></tr></tfoot></table></div>';
+  }
+
+  function goToMonth(y,m) { curYear=y; curMonth=m; switchTab("calendar"); changeMonth(0); }
+
+  // ── EXPORT ───────────────────────────────────────────────────
+  async function exportExcel() {
+    const btn = document.querySelector(".export-btn");
+    btn.textContent = "Exporting..."; btn.disabled = true;
+    try {
+      const snap = await Promise.race([
+        window._get(window._ref(window._db,"expenses")),
+        new Promise((_,r)=>setTimeout(()=>r(new Error("timeout")),10000))
+      ]);
+      if (!snap.exists()) { alert("No data to export yet."); btn.textContent="Export Excel"; btn.disabled=false; return; }
+      const all = snap.val();
+      const wb  = XLSX.utils.book_new();
+
+      // Sheet 1: All Entries
+      const rows1 = [["Date","Type","Item / Name","Unit Price / Rate","Qty / Hours","Subtotal","Notes"]];
+      Object.entries(all).sort((a,b)=>a[0].localeCompare(b[0])).forEach(([k,v])=>{
+        const ds   = k.replace(/_/g,"-");
+        const note = v.notes||"";
+        let first  = true;
+        (v.materials||[]).forEach(r=>{
+          rows1.push([ds,"Material",r.size||"",+r.price||0,+r.qty||0,+(((+r.price||0)*(+r.qty||0)).toFixed(2)),first?note:""]);
+          first=false;
+        });
+        (v.labor||[]).forEach(r=>{
+          rows1.push([ds,"Labor",r.name||"",+r.rate||0,+r.hours||0,+(((+r.hours||0)*(+r.rate||0)).toFixed(2)),first?note:""]);
+          first=false;
+        });
+        if (first && note) rows1.push([ds,"","","","","",note]);
+      });
+      const ws1 = XLSX.utils.aoa_to_sheet(rows1);
+      ws1["!cols"] = [{wch:14},{wch:10},{wch:20},{wch:16},{wch:12},{wch:12},{wch:35}];
+      XLSX.utils.book_append_sheet(wb,ws1,"All Entries");
+
+      // Sheet 2: Daily Summary
+      const rows2 = [["Date","Materials ($)","Labor ($)","Total ($)","Notes"]];
+      Object.entries(all).sort((a,b)=>a[0].localeCompare(b[0])).forEach(([k,v])=>{
+        const mt = (v.materials||[]).reduce((s,r)=>s+(+r.price||0)*(+r.qty||0),0);
+        const lt = (v.labor||[]).reduce((s,r)=>s+(+r.hours||0)*(+r.rate||0),0);
+        rows2.push([k.replace(/_/g,"-"),+mt.toFixed(2),+lt.toFixed(2),+(mt+lt).toFixed(2),v.notes||""]);
+      });
+      const ws2 = XLSX.utils.aoa_to_sheet(rows2);
+      ws2["!cols"] = [{wch:14},{wch:15},{wch:12},{wch:12},{wch:35}];
+      XLSX.utils.book_append_sheet(wb,ws2,"Daily Summary");
+
+      // Sheet 3: Monthly Summary
+      const monthly = {};
+      Object.entries(all).forEach(([k,v])=>{
+        const ym = k.slice(0,7).replace("_","-");
+        const mt = (v.materials||[]).reduce((s,r)=>s+(+r.price||0)*(+r.qty||0),0);
+        const lt = (v.labor||[]).reduce((s,r)=>s+(+r.hours||0)*(+r.rate||0),0);
+        if (!monthly[ym]) monthly[ym]={m:0,l:0};
+        monthly[ym].m+=mt; monthly[ym].l+=lt;
+      });
+      const rows3 = [["Month","Materials ($)","Labor ($)","Total ($)"]];
+      Object.entries(monthly).sort((a,b)=>a[0].localeCompare(b[0])).forEach(([ym,v])=>{
+        const [y,m]=ym.split("-").map(Number);
+        rows3.push([MONTHS[m-1]+" "+y,+v.m.toFixed(2),+v.l.toFixed(2),+(v.m+v.l).toFixed(2)]);
+      });
+      const gm=Object.values(monthly).reduce((s,v)=>s+v.m,0);
+      const gl=Object.values(monthly).reduce((s,v)=>s+v.l,0);
+      rows3.push(["TOTAL",+gm.toFixed(2),+gl.toFixed(2),+(gm+gl).toFixed(2)]);
+      const ws3 = XLSX.utils.aoa_to_sheet(rows3);
+      ws3["!cols"] = [{wch:18},{wch:15},{wch:12},{wch:12}];
+      XLSX.utils.book_append_sheet(wb,ws3,"Monthly Summary");
+
+      XLSX.writeFile(wb,"Whatnot_Cost_Tracker_"+new Date().toISOString().slice(0,10)+".xlsx");
+    } catch(e) {
+      console.error(e);
+      alert("Export failed. Please check your connection and try again.");
+    }
+    btn.textContent = "Export Excel"; btn.disabled = false;
+  }
+
+  // ── UTILS ────────────────────────────────────────────────────
+  function esc(s){ return String(s||"").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;"); }
+
+  // ── INIT ─────────────────────────────────────────────────────
+  async function init() {
+    showLoading(true);
+    try {
+      monthCache = await Promise.race([fbGetMonth(curYear,curMonth), new Promise((_,r)=>setTimeout(()=>r(new Error("timeout")),10000))]);
+      setStatus("Live","ok");
+    } catch(e) {
+      console.error(e); monthCache={};
+      setStatus("Check Firebase DB","err");
+    }
+    showLoading(false);
+    renderCalendar();
+  }
+
+  document.addEventListener("firebase-ready", init);
+</script>
+</body>
+</html>
