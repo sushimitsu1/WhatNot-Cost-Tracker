@@ -8,6 +8,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getDatabase, ref, set, get } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+  import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
   const firebaseConfig = {
     apiKey:            "AIzaSyACDzC304jHmoPww5FcjK-37Vxn6n1Q69w",
@@ -19,14 +20,29 @@
     appId:             "1:642864520880:web:2e2e5cbc265dd19d9d6575"
   };
 
-  const app = initializeApp(firebaseConfig);
-  const db  = getDatabase(app);
+  const app  = initializeApp(firebaseConfig);
+  const db   = getDatabase(app);
+  const auth = getAuth(app);
+
   window._db  = db;
   window._ref = ref;
   window._set = set;
   window._get = get;
-  window._firebaseReady = true;
-  document.dispatchEvent(new Event("firebase-ready"));
+
+  // Sign in anonymously — this satisfies "auth != null" rules
+  // while still letting both you and your supervisor use the app freely
+  signInAnonymously(auth).catch(err => {
+    console.error("Auth error:", err);
+    document.getElementById("sync-status").textContent = "Auth failed — check Firebase Auth settings";
+    document.getElementById("sync-status").className = "sync-status err";
+  });
+
+  onAuthStateChanged(auth, user => {
+    if (user) {
+      window._firebaseReady = true;
+      document.dispatchEvent(new Event("firebase-ready"));
+    }
+  });
 </script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
